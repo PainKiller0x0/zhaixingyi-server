@@ -70,13 +70,12 @@ echo (2/3) 本地操作成功，开始远程部署...
 echo ====================================
 
 :: 4. 通过SSH连接到远程服务器并执行命令
-:: !!! 请将 "root@你的公网IP" 替换为你的实际信息 !!!
-echo ^> ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull && pm2 restart zhaixingyi-api"
-ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull && pm2 restart zhaixingyi-api"
+:: 这个命令现在包含了设置追踪分支的步骤，以解决之前的报错
+echo ^> ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull origin master && pm2 restart zhaixingyi-api"
+ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull origin master && pm2 restart zhaixingyi-api"
 if %errorlevel% neq 0 (
     echo.
-    echo 错误：远程部署命令执行失败。
-    echo 请检查网络连接、SSH配置或远程服务器上的Git/PM2状态。
+    echo 错误：远程部署命令执行失败。请检查网络连接、SSH配置或远程服务器上的Git/PM2状态。
     echo.
     pause
     goto end_script
