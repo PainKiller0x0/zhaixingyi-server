@@ -4,18 +4,22 @@ const app = express();
 const port = 3000;
 
 // =========================================================================
-// Gemini API 配置
+// 最终版本：从环境变量中安全地读取 Gemini API 密钥
 // =========================================================================
-// 使用你找到的代理 API 地址
-const GEMINI_API_PROXY_URL = 'https://api-proxy.me/gemini';
-// 使用你自己的 Gemini API 密钥
-const GEMINI_API_KEY = 'AIzaSyAUVjQgcjHhMBe0CiY0TbwwWg8tj61pg70';
-const GEMINI_MODEL = 'gemini-pro';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+const GEMINI_MODEL = 'gemini-2.5-flash'; // <<<--- 这里修改为 gemini-2.5-flash
+
+// 启动前检查，如果环境变量中没有密钥，直接报错并退出
+if (!GEMINI_API_KEY) {
+    console.error('错误：GEMINI_API_KEY 环境变量未设置！请在服务器上设置。');
+    process.exit(1);
+}
 
 app.use(express.json());
 
 // =========================================================================
-// 升级后的 extractM4a 接口
+// extractM4a 接口（迁移自云函数）
+// 功能：抓取播客网页，提取直链、标题、封面和简介
 // =========================================================================
 app.post('/api/extractM4a', async (req, res) => {
     const { episodeUrl } = req.body;
@@ -110,15 +114,15 @@ app.post('/api/extractM4a', async (req, res) => {
 });
 
 // =========================================================================
-// 新增 getHighlights 接口（调用 Gemini Pro 摘要+金句+标签）
+// 新增 getHighlights 接口（调用 Gemini 摘要+金句+标签）
 // =========================================================================
 app.post('/api/getHighlights', async (req, res) => {
     const { title, shownote } = req.body;
 
     if (!shownote) {
         return res.json({
-        success: false,
-        error: '缺少节目简介（shownote），无法生成摘要。',
+            success: false,
+            error: '缺少节目简介（shownote），无法生成摘要。',
         });
     }
 
@@ -138,8 +142,10 @@ app.post('/api/getHighlights', async (req, res) => {
 }
 `;
 
-    const finalUrl = `${GEMINI_API_PROXY_URL}/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-    
+    // 核心：使用代理服务地址并从环境变量中获取密钥
+    const proxyApiUrl = `https://api-proxy.me/gemini/v1beta/models/${GEMINI_MODEL}:generateContent`; // <<<--- 这里替换为实际代理地址，并使用变量
+    const finalUrl = `${proxyApiUrl}?key=${GEMINI_API_KEY}`; // 密钥直接使用环境变量
+
     try {
         const gRes = await axios.post(
             finalUrl,
@@ -185,8 +191,6 @@ app.post('/api/submitFeedback', async (req, res) => {
         message: '反馈已提交，感谢您的支持！'
     });
 });
-
-console.log('--- 测试部署成功 ---');
 
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
