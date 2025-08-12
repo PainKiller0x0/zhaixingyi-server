@@ -59,9 +59,9 @@ if errorlevel 1 (
 echo.
 echo ====================================
 echo (2/3) 本地操作完成，开始远程部署...
-echo ====================================
-
-ssh %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && git pull %REMOTE_NAME% %REMOTE_BRANCH% && pm2 restart %PM2_APP_NAME%"
+====================================
+:: 核心修改：将远程服务器上的 git pull 命令的远程名从 %REMOTE_NAME% 改回 origin
+ssh %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && git pull origin %REMOTE_BRANCH% && pm2 restart %PM2_APP_NAME%"
 if errorlevel 1 (
     echo ❌ 错误：远程部署失败，请检查SSH连接、Git、PM2状态。
     goto :end
