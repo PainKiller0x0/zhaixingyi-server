@@ -7,7 +7,7 @@ const port = 3000;
 // 最终版本：从环境变量中安全地读取 Gemini API 密钥
 // =========================================================================
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
-const GEMINI_MODEL = 'gemini-2.5-flash'; // <<<--- 这里修改为 gemini-2.5-flash
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 // 启动前检查，如果环境变量中没有密钥，直接报错并退出
 if (!GEMINI_API_KEY) {
@@ -18,8 +18,7 @@ if (!GEMINI_API_KEY) {
 app.use(express.json());
 
 // =========================================================================
-// extractM4a 接口（迁移自云函数）
-// 功能：抓取播客网页，提取直链、标题、封面和简介
+// 升级后的 extractM4a 接口
 // =========================================================================
 app.post('/api/extractM4a', async (req, res) => {
     const { episodeUrl } = req.body;
@@ -48,7 +47,7 @@ app.post('/api/extractM4a', async (req, res) => {
         const m4aMatch = htmlText.match(m4aRegex);
         const m4aUrl = m4aMatch ? m4aMatch[0] : null;
 
-        // 标题
+        // 提取标题
         let podcastTitle = '未知播客标题';
         const titleRegex = /<title>(.*?)<\/title>/;
         const titleMatch = htmlText.match(titleRegex);
@@ -56,7 +55,7 @@ app.post('/api/extractM4a', async (req, res) => {
             podcastTitle = titleMatch[1].replace(/\s*\|\s*小宇宙/, '').trim();
         }
 
-        // 封面
+        // 提取封面
         let cover = null;
         const coverRegex = /<meta\s+property="og:image"\s+content="([^"]+)"/;
         const coverMatch = htmlText.match(coverRegex);
@@ -64,15 +63,23 @@ app.post('/api/extractM4a', async (req, res) => {
             cover = coverMatch[1];
         }
 
-        // 简介 / shownote
+        // === 核心修改：增强 shownote 提取逻辑 ===
         let shownote = null;
-        const descRegex = /<meta\s+property="og:description"\s+content="([^"]+)"/;
-        const descMatch = htmlText.match(descRegex);
-        if (descMatch && descMatch[1]) {
-            shownote = descMatch[1];
+        // 尝试匹配 og:description
+        const descOgRegex = /<meta\s+property="og:description"\s+content="([^"]+)"/;
+        const descOgMatch = htmlText.match(descOgRegex);
+        if (descOgMatch && descOgMatch[1]) {
+            shownote = descOgMatch[1];
+        } else {
+            // 如果 og:description 失败，尝试匹配 name="description"
+            const descNameRegex = /<meta\s+name="description"\s+content="([^"]+)"/;
+            const descNameMatch = htmlText.match(descNameRegex);
+            if (descNameMatch && descNameMatch[1]) {
+                shownote = descNameMatch[1];
+            }
         }
 
-        // 播客名
+        // 提取播客名
         let podcastName = null;
         const siteNameRegex = /<meta\s+property="og:site_name"\s+content="([^"]+)"/;
         const siteNameMatch = htmlText.match(siteNameRegex);
@@ -82,12 +89,13 @@ app.post('/api/extractM4a', async (req, res) => {
 
         if (m4aUrl) {
             console.log(`[服务器] 成功提取到链接: ${m4aUrl}`);
+            // 确保 shownote 返回的是一个非空字符串或 null
             return res.json({
                 success: true,
                 m4aUrl,
                 title: podcastTitle,
                 cover,
-                shownote,
+                shownote: shownote || '', // 将 null 转换为一个空字符串，避免前端异常
                 podcastName
             });
         } else {
@@ -143,8 +151,8 @@ app.post('/api/getHighlights', async (req, res) => {
 `;
 
     // 核心：使用代理服务地址并从环境变量中获取密钥
-    const proxyApiUrl = `https://api-proxy.me/gemini/v1beta/models/${GEMINI_MODEL}:generateContent`; // <<<--- 这里替换为实际代理地址，并使用变量
-    const finalUrl = `${proxyApiUrl}?key=${GEMINI_API_KEY}`; // 密钥直接使用环境变量
+    const proxyApiUrl = `https://api-proxy.me/gemini/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const finalUrl = `${proxyApiUrl}?key=${GEMINI_API_KEY}`;
 
     try {
         const gRes = await axios.post(
