@@ -158,7 +158,6 @@ app.post('/api/getHighlights', async (req, res) => {
 }
 `;
 
-    // 核心：使用代理服务地址并从环境变量中获取密钥
     const proxyApiUrl = `https://api-proxy.me/gemini/v1beta/models/${GEMINI_MODEL}:generateContent`;
     const finalUrl = `${proxyApiUrl}?key=${GEMINI_API_KEY}`;
 
@@ -178,7 +177,14 @@ app.post('/api/getHighlights', async (req, res) => {
         const textOutput = gRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         let parsed;
         try {
-            parsed = JSON.parse(textOutput);
+            // 首先尝试从 Markdown 代码块中提取 JSON
+            const jsonMatch = textOutput.match(/```json\n(.*)\n```/s);
+            if (jsonMatch && jsonMatch[1]) {
+                parsed = JSON.parse(jsonMatch[1]);
+            } else {
+                // 如果不是 Markdown 格式，则直接尝试解析
+                parsed = JSON.parse(textOutput);
+            }
         } catch {
             parsed = { raw: textOutput };
         }
@@ -188,19 +194,15 @@ app.post('/api/getHighlights', async (req, res) => {
             highlights: parsed
         });
     } catch (err) {
-        // === 核心修改：增加详细的错误日志 ===
         console.error('[服务器] Gemini API 调用失败!');
         if (err.response) {
-            // API 返回了错误响应
             console.error('[服务器] 状态码:', err.response.status);
             console.error('[服务器] 响应数据:', err.response.data);
             console.error('[服务器] 响应头:', err.response.headers);
         } else if (err.request) {
-            // 请求已发出但未收到响应
             console.error('[服务器] 请求已发出，但未收到响应。');
             console.error('[服务器] 错误信息:', err.message);
         } else {
-            // 其他错误
             console.error('[服务器] 其他错误:', err.message);
         }
 
