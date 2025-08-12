@@ -186,6 +186,8 @@ app.post('/api/submitFeedback', async (req, res) => {
     });
 });
 
+console.log('--- 测试部署成功 ---');
+
 app.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
 });
