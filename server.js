@@ -103,7 +103,7 @@ app.post('/api/extractM4a', async (req, res) => {
                 m4aUrl,
                 title: podcastTitle,
                 cover,
-                shownote, // 此时 shownote 已经是字符串，可能是空
+                shownote,
                 podcastName
             });
         } else {
@@ -188,7 +188,22 @@ app.post('/api/getHighlights', async (req, res) => {
             highlights: parsed
         });
     } catch (err) {
-        console.error('[服务器] Gemini API 调用失败:', err.message);
+        // === 核心修改：增加详细的错误日志 ===
+        console.error('[服务器] Gemini API 调用失败!');
+        if (err.response) {
+            // API 返回了错误响应
+            console.error('[服务器] 状态码:', err.response.status);
+            console.error('[服务器] 响应数据:', err.response.data);
+            console.error('[服务器] 响应头:', err.response.headers);
+        } else if (err.request) {
+            // 请求已发出但未收到响应
+            console.error('[服务器] 请求已发出，但未收到响应。');
+            console.error('[服务器] 错误信息:', err.message);
+        } else {
+            // 其他错误
+            console.error('[服务器] 其他错误:', err.message);
+        }
+
         return res.json({
             success: false,
             error: 'Gemini API 调用失败'
