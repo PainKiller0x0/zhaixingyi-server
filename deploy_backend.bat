@@ -1,29 +1,18 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001
-echo ====================================
-echo 一键部署后端代码脚本 (摘星译)
-echo ====================================
+title 一键部署后端代码脚本 (摘星译)
 
-:: 检查当前目录是否有.git文件夹
+echo ====================================
+echo Git 一键部署后端代码脚本 (摘星译)
+echo ====================================
+echo.
+
+:: 检查当前目录是否是Git仓库
 if not exist ".git" (
+    echo 错误：当前目录不是一个Git仓库，请在正确的目录运行此脚本。
     echo.
-    echo 错误：当前目录似乎不是一个Git仓库。
-    echo 请确保在后端代码的根目录运行此脚本。
-    echo.
-    pause
-    exit /b 1
-)
-
-:: 提示用户输入提交信息
-set /p commit_message="请输入本次提交的描述信息: "
-
-:: 检查提交信息是否为空
-if "%commit_message%"=="" (
-    echo.
-    echo 警告：提交信息不能为空，请重新运行脚本并输入描述。
-    echo.
-    pause
-    exit /b 1
+    goto :end
 )
 
 echo.
@@ -31,54 +20,45 @@ echo ====================================
 echo (1/3) 正在执行本地 Git 操作...
 echo ====================================
 
-:: 1. 添加所有文件到暂存区
-echo ^> git add .
-git add .
-if %errorlevel% neq 0 (
-    echo.
-    echo 错误：git add 命令执行失败。
-    echo.
-    pause
-    exit /b 1
-)
+:: 检查是否有未提交的更改
+git diff-index --quiet HEAD --
+if errorlevel 1 (
+    set /p commit_message="请输入本次提交的描述信息: "
+    if "!commit_message!"=="" (
+        echo 警告：提交信息不能为空。
+        goto :end
+    )
 
-:: 2. 提交到本地仓库
-echo ^> git commit -m "%commit_message%"
-git commit -m "%commit_message%"
-if %errorlevel% neq 0 (
-    echo.
-    echo 错误：git commit 命令执行失败，可能没有新的改动。
-    echo.
-    pause
-    goto end_script
-)
+    git add .
+    if errorlevel 1 (
+        echo 错误：git add 失败。
+        goto :end
+    )
 
-:: 3. 推送到远程仓库
-echo ^> git push
-git push
-if %errorlevel% neq 0 (
-    echo.
-    echo 错误：git push 命令执行失败。
-    echo.
-    pause
-    goto end_script
+    git commit -m "!commit_message!"
+    if errorlevel 1 (
+        echo 错误：git commit 失败。
+        goto :end
+    )
+
+    git push gitee master
+    if errorlevel 1 (
+        echo 错误：git push 失败，请检查网络连接或仓库配置。
+        goto :end
+    )
+) else (
+    echo 没有需要提交的更改，跳过提交和推送步骤。
 )
 
 echo.
 echo ====================================
-echo (2/3) 本地操作成功，开始远程部署...
+echo (2/3) 本地操作完成，开始远程部署...
 echo ====================================
 
-:: 4. 通过SSH连接到远程服务器并执行命令
-:: 这个命令现在包含了设置追踪分支的步骤，以解决之前的报错
-echo ^> ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull origin master && pm2 restart zhaixingyi-api"
-ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull origin master && pm2 restart zhaixingyi-api"
-if %errorlevel% neq 0 (
-    echo.
-    echo 错误：远程部署命令执行失败。请检查网络连接、SSH配置或远程服务器上的Git/PM2状态。
-    echo.
-    pause
-    goto end_script
+ssh root@8.134.192.197 "cd /opt/zhaixingyi-backend && git pull gitee master && pm2 restart zhaixingyi-api"
+if errorlevel 1 (
+    echo 错误：远程部署失败，请检查SSH连接、Git、PM2状态。
+    goto :end
 )
 
 echo.
@@ -86,7 +66,6 @@ echo ====================================
 echo (3/3) 部署成功！
 echo ====================================
 
-:end_script
+:end
 echo.
-echo 脚本执行完毕。
 pause
