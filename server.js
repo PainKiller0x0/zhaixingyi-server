@@ -64,19 +64,28 @@ app.post('/api/extractM4a', async (req, res) => {
         }
 
         // === 核心修改：增强 shownote 提取逻辑 ===
-        let shownote = null;
-        // 尝试匹配 og:description
-        const descOgRegex = /<meta\s+property="og:description"\s+content="([^"]+)"/;
-        const descOgMatch = htmlText.match(descOgRegex);
-        if (descOgMatch && descOgMatch[1]) {
-            shownote = descOgMatch[1];
-        } else {
-            // 如果 og:description 失败，尝试匹配 name="description"
-            const descNameRegex = /<meta\s+name="description"\s+content="([^"]+)"/;
-            const descNameMatch = htmlText.match(descNameRegex);
-            if (descNameMatch && descNameMatch[1]) {
-                shownote = descNameMatch[1];
+        let shownote = '';
+        try {
+            // 策略1: 优先从结构化数据中提取 (最准确)
+            const jsonLdRegex = /<script name="schema:podcast-show" type="application\/ld\+json">(.*?)<\/script>/s;
+            const jsonLdMatch = htmlText.match(jsonLdRegex);
+            if (jsonLdMatch && jsonLdMatch[1]) {
+                const jsonLd = JSON.parse(jsonLdMatch[1]);
+                if (jsonLd.description) {
+                    shownote = jsonLd.description;
+                }
             }
+
+            // 策略2: 如果策略1失败，尝试从 <meta> 标签中提取
+            if (!shownote) {
+                const metaRegex = /<meta\s+(?:property="og:description"\s+name="description"|name="description"\s+property="og:description")\s+content="([^"]+)"/;
+                const metaMatch = htmlText.match(metaRegex);
+                if (metaMatch && metaMatch[1]) {
+                    shownote = metaMatch[1];
+                }
+            }
+        } catch (e) {
+            console.error('[服务器] shownote 提取或解析失败:', e.message);
         }
 
         // 提取播客名
@@ -89,13 +98,12 @@ app.post('/api/extractM4a', async (req, res) => {
 
         if (m4aUrl) {
             console.log(`[服务器] 成功提取到链接: ${m4aUrl}`);
-            // 确保 shownote 返回的是一个非空字符串或 null
             return res.json({
                 success: true,
                 m4aUrl,
                 title: podcastTitle,
                 cover,
-                shownote: shownote || '', // 将 null 转换为一个空字符串，避免前端异常
+                shownote, // 此时 shownote 已经是字符串，可能是空
                 podcastName
             });
         } else {
