@@ -1,4 +1,4 @@
-// 这是正确的 server.js (集成智谱 GLM-4-Flash，修复全局崩溃 Bug 版)
+// 这是紧急修复版 server.js (移除了后端的假数据兜底，避免影响线上旧版小程序)
 const express = require('express');
 const axios = require('axios');
 const app = express();
@@ -9,9 +9,9 @@ const port = 3000;
 // =========================================================================
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY; 
 
-// 💡 核心修复 1：移除 process.exit(1)，改为只打印警告，绝不阻塞服务器启动！
+// 启动前检查，移除报错退出，改为警告提示
 if (!ZHIPU_API_KEY) {
-    console.warn('⚠️ 警告：ZHIPU_API_KEY 环境变量未设置！AI 摘要功能将自动降级为默认文案，【不影响】基础的音频提取功能。');
+    console.warn('⚠️ 警告：ZHIPU_API_KEY 环境变量未设置！AI 摘要功能将被跳过，但不影响基础的音频提取。');
 }
 
 app.use(express.json());
@@ -120,7 +120,7 @@ app.post('/api/extractM4a', async (req, res) => {
 });
 
 // =========================================================================
-// getHighlights 接口（调用智谱 GLM-4-Flash 生成摘要+金句+标签）
+// getHighlights 接口（调用智谱 GLM-4-Flash）
 // =========================================================================
 app.post('/api/getHighlights', async (req, res) => {
     const { title, shownote } = req.body;
@@ -132,16 +132,12 @@ app.post('/api/getHighlights', async (req, res) => {
         });
     }
 
-    // 💡 核心修复 2：如果压根没配 Key，直接光速返回兜底文案，不去请求智谱 API
+    // 💡 修复：如果没有配置 Key，诚实地返回失败，不要发假数据干扰线上旧版本！
     if (!ZHIPU_API_KEY) {
-        console.log('[服务器] 检测到未配置 ZHIPU_API_KEY，触发服务降级，直接返回默认金句。');
+        console.warn('[服务器] 未配置 ZHIPU_API_KEY，放弃生成亮点。');
         return res.json({
-            success: true,
-            highlights: {
-                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
-                summary: "AI 摘要服务暂未配置，但精彩内容仍在链接中。",
-                tags: ["摘星译", "播客推荐"]
-            }
+            success: false,
+            error: 'AI 摘要服务未配置，跳过亮点生成。'
         });
     }
 
@@ -196,11 +192,11 @@ app.post('/api/getHighlights', async (req, res) => {
             parsed = JSON.parse(cleanedText);
         } catch (parseError) {
             console.error('[服务器] JSON 解析失败, 原始输出:', textOutput);
-            parsed = { 
-                quote: "这是一段直击灵魂的播客，等待你的倾听。", 
-                summary: "AI 摘要生成遇到了一点小波折，但精彩内容仍在链接中。",
-                tags: ["摘星译", "播客推荐"]
-            };
+            // 💡 修复：如果 AI 乱回答导致解析失败，也诚实地返回失败
+            return res.json({
+                success: false,
+                error: 'AI 摘要生成内容异常。'
+            });
         }
 
         return res.json({
@@ -210,24 +206,10 @@ app.post('/api/getHighlights', async (req, res) => {
 
     } catch (err) {
         console.error('[服务器] 智谱 API 调用失败!');
-        if (err.response) {
-            console.error('[服务器] 状态码:', err.response.status);
-            console.error('[服务器] 响应数据:', err.response.data);
-        } else if (err.request) {
-            console.error('[服务器] 请求已发出，但未收到响应。');
-            console.error('[服务器] 错误信息:', err.message);
-        } else {
-            console.error('[服务器] 其他错误:', err.message);
-        }
-
-        // 即使请求失败，也当作服务降级处理，保证前端不出错
+        // 💡 修复：API 调用报错时，诚实地返回失败
         return res.json({
-            success: true,
-            highlights: { 
-                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
-                summary: "AI 摘要服务调用超时或失败，但基础提取已完成。",
-                tags: ["摘星译", "播客推荐"]
-            }
+            success: false,
+            error: 'AI 摘要服务调用失败，请稍后再试'
         });
     }
 });
