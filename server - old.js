@@ -1,25 +1,24 @@
-// 这是正确的 server.js (集成智谱 GLM-4-Flash 版)
 const express = require('express');
 const axios = require('axios');
 const app = express();
 const port = 3000;
 
 // =========================================================================
-// 最终版本：从环境变量中安全地读取 智谱 API 密钥
+// 最终版本：从环境变量中安全地读取 Gemini API 密钥
 // =========================================================================
-// ⚠️ 注意：你需要去 1Panel 的环境变量里，把 GEMINI_API_KEY 换成 ZHIPU_API_KEY
-const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY; 
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 // 启动前检查，如果环境变量中没有密钥，直接报错并退出
-if (!ZHIPU_API_KEY) {
-    console.error('错误：ZHIPU_API_KEY 环境变量未设置！请在服务器上设置。');
+if (!GEMINI_API_KEY) {
+    console.error('错误：GEMINI_API_KEY 环境变量未设置！请在服务器上设置。');
     process.exit(1);
 }
 
 app.use(express.json());
 
 // =========================================================================
-// 升级后的 extractM4a 接口 (保持不变)
+// 升级后的 extractM4a 接口
 // =========================================================================
 app.post('/api/extractM4a', async (req, res) => {
     const { episodeUrl } = req.body;
@@ -131,7 +130,7 @@ app.post('/api/extractM4a', async (req, res) => {
 });
 
 // =========================================================================
-// 新增/修改：getHighlights 接口（调用智谱 GLM-4-Flash 生成摘要+金句+标签）
+// 新增 getHighlights 接口（调用 Gemini 摘要+金句+标签）
 // =========================================================================
 app.post('/api/getHighlights', async (req, res) => {
     const { title, shownote } = req.body;
@@ -143,77 +142,63 @@ app.post('/api/getHighlights', async (req, res) => {
         });
     }
 
-    const prompt = `你是一个专业的播客文案编辑。请根据以下播客内容，提取并生成以下三项信息：
-1. 一句最吸引人的核心金句（不要太长）
-2. 三行以内的精炼摘要（概括核心内容）
+    const prompt = `
+你是一个播客文案编辑，给下面的播客内容生成：
+1. 一句吸引人的金句
+2. 三行以内的精炼摘要
 3. 3~5 个关键词标签
 
-标题: ${title || '未知标题'}
+标题: ${title || ''}
 简介: ${shownote}
-
-【重要要求】
-必须严格输出合法的 JSON 格式，不要包含任何额外的说明文字、前言或 Markdown 标记。JSON 格式如下：
+输出 JSON 格式：
 {
-  "quote": "金句内容",
-  "summary": "摘要内容",
-  "tags": ["标签1", "标签2", "标签3"]
-}`;
+  "quote": "xxx",
+  "summary": "xxx",
+  "tags": ["标签1","标签2",...]
+}
+`;
 
-    const apiUrl = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+    const proxyApiUrl = `https://api-proxy.me/gemini/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const finalUrl = `${proxyApiUrl}?key=${GEMINI_API_KEY}`;
 
     try {
-        const response = await axios.post(
-            apiUrl,
+        const gRes = await axios.post(
+            finalUrl,
             {
-                model: "GLM-4-Flash-250414", // 指定免费模型
-                messages: [
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.7,
-                top_p: 0.7
+                contents: [
+                    {
+                        parts: [{ text: prompt }]
+                    }
+                ]
             },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ZHIPU_API_KEY}`
-                },
-                timeout: 20000 // 预留 20 秒超时
-            }
+            { timeout: 15000 }
         );
 
-        // 提取智谱 API 返回的文本结果
-        const textOutput = response.data?.choices?.[0]?.message?.content || '';
+        const textOutput = gRes.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         let parsed;
-        
         try {
-            // 鲁棒性处理：剔除模型可能自作主张加上的 markdown json 标签
-            let cleanedText = textOutput.trim();
-            if (cleanedText.startsWith('```json')) {
-                cleanedText = cleanedText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-            } else if (cleanedText.startsWith('```')) {
-                cleanedText = cleanedText.replace(/^```\n?/, '').replace(/\n?```$/, '');
+            // 首先尝试从 Markdown 代码块中提取 JSON
+            const jsonMatch = textOutput.match(/```json\n(.*)\n```/s);
+            if (jsonMatch && jsonMatch[1]) {
+                parsed = JSON.parse(jsonMatch[1]);
+            } else {
+                // 如果不是 Markdown 格式，则直接尝试解析
+                parsed = JSON.parse(textOutput);
             }
-            parsed = JSON.parse(cleanedText);
-        } catch (parseError) {
-            console.error('[服务器] JSON 解析失败, 原始输出:', textOutput);
-            // 兜底策略：保证前端有数据可以画海报
-            parsed = { 
-                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
-                summary: "AI 摘要生成遇到了一点小波折，但精彩内容仍在链接中。",
-                tags: ["摘星译", "播客推荐"]
-            };
+        } catch {
+            parsed = { raw: textOutput };
         }
 
         return res.json({
             success: true,
             highlights: parsed
         });
-
     } catch (err) {
-        console.error('[服务器] 智谱 API 调用失败!');
+        console.error('[服务器] Gemini API 调用失败!');
         if (err.response) {
             console.error('[服务器] 状态码:', err.response.status);
             console.error('[服务器] 响应数据:', err.response.data);
+            console.error('[服务器] 响应头:', err.response.headers);
         } else if (err.request) {
             console.error('[服务器] 请求已发出，但未收到响应。');
             console.error('[服务器] 错误信息:', err.message);
@@ -223,13 +208,13 @@ app.post('/api/getHighlights', async (req, res) => {
 
         return res.json({
             success: false,
-            error: 'AI 摘要服务调用失败，请稍后再试'
+            error: 'Gemini API 调用失败'
         });
     }
 });
 
 // =========================================================================
-// submitFeedback（B 方案）
+// 原有的 submitFeedback（保留）
 // =========================================================================
 app.post('/api/submitFeedback', async (req, res) => {
     const { feedbackContent } = req.body;
