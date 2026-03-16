@@ -7,7 +7,7 @@ set REMOTE_NAME=gitee
 set REMOTE_BRANCH=master
 set SERVER_USER=root
 set SERVER_IP=8.134.192.197
-set SERVER_PATH=/opt/zhaixingyi-backend
+set SERVER_PATH=/root/zhaixingyi_server/
 set PM2_APP_NAME=zhaixingyi-api
 
 echo ====================================
