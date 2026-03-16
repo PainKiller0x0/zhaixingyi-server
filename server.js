@@ -1,19 +1,17 @@
-// 这是正确的 server.js (集成智谱 GLM-4-Flash 版)
+// 这是正确的 server.js (集成智谱 GLM-4-Flash，修复全局崩溃 Bug 版)
 const express = require('express');
 const axios = require('axios');
 const app = express();
 const port = 3000;
 
 // =========================================================================
-// 最终版本：从环境变量中安全地读取 智谱 API 密钥
+// 环境变量读取
 // =========================================================================
-// ⚠️ 注意：你需要去 1Panel 的环境变量里，把 GEMINI_API_KEY 换成 ZHIPU_API_KEY
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY; 
 
-// 启动前检查，如果环境变量中没有密钥，直接报错并退出
+// 💡 核心修复 1：移除 process.exit(1)，改为只打印警告，绝不阻塞服务器启动！
 if (!ZHIPU_API_KEY) {
-    console.error('错误：ZHIPU_API_KEY 环境变量未设置！请在服务器上设置。');
-    process.exit(1);
+    console.warn('⚠️ 警告：ZHIPU_API_KEY 环境变量未设置！AI 摘要功能将自动降级为默认文案，【不影响】基础的音频提取功能。');
 }
 
 app.use(express.json());
@@ -43,12 +41,10 @@ app.post('/api/extractM4a', async (req, res) => {
         });
         const htmlText = response.data;
 
-        // 提取 m4a
         const m4aRegex = /(https:\/\/media\.xyzcdn\.net\/[^\s"']+\.m4a)/;
         const m4aMatch = htmlText.match(m4aRegex);
         const m4aUrl = m4aMatch ? m4aMatch[0] : null;
 
-        // 提取标题
         let podcastTitle = '未知播客标题';
         const titleRegex = /<title>(.*?)<\/title>/;
         const titleMatch = htmlText.match(titleRegex);
@@ -56,7 +52,6 @@ app.post('/api/extractM4a', async (req, res) => {
             podcastTitle = titleMatch[1].replace(/\s*\|\s*小宇宙/, '').trim();
         }
 
-        // 提取封面
         let cover = null;
         const coverRegex = /<meta\s+property="og:image"\s+content="([^"]+)"/;
         const coverMatch = htmlText.match(coverRegex);
@@ -64,10 +59,8 @@ app.post('/api/extractM4a', async (req, res) => {
             cover = coverMatch[1];
         }
 
-        // === 核心修改：增强 shownote 提取逻辑 ===
         let shownote = '';
         try {
-            // 策略1: 优先从结构化数据中提取 (最准确)
             const jsonLdRegex = /<script name="schema:podcast-show" type="application\/ld\+json">(.*?)<\/script>/s;
             const jsonLdMatch = htmlText.match(jsonLdRegex);
             if (jsonLdMatch && jsonLdMatch[1]) {
@@ -76,8 +69,6 @@ app.post('/api/extractM4a', async (req, res) => {
                     shownote = jsonLd.description;
                 }
             }
-
-            // 策略2: 如果策略1失败，尝试从 <meta> 标签中提取
             if (!shownote) {
                 const metaRegex = /<meta\s+(?:property="og:description"\s+name="description"|name="description"\s+property="og:description")\s+content="([^"]+)"/;
                 const metaMatch = htmlText.match(metaRegex);
@@ -89,7 +80,6 @@ app.post('/api/extractM4a', async (req, res) => {
             console.error('[服务器] shownote 提取或解析失败:', e.message);
         }
 
-        // 提取播客名
         let podcastName = null;
         const siteNameRegex = /<meta\s+property="og:site_name"\s+content="([^"]+)"/;
         const siteNameMatch = htmlText.match(siteNameRegex);
@@ -121,7 +111,6 @@ app.post('/api/extractM4a', async (req, res) => {
         if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
             errorMessage = '网络不稳定，请求超时了，请重试。';
         }
-
         return res.json({
             success: false,
             errorCode: 'NETWORK_ERROR',
@@ -131,7 +120,7 @@ app.post('/api/extractM4a', async (req, res) => {
 });
 
 // =========================================================================
-// 新增/修改：getHighlights 接口（调用智谱 GLM-4-Flash 生成摘要+金句+标签）
+// getHighlights 接口（调用智谱 GLM-4-Flash 生成摘要+金句+标签）
 // =========================================================================
 app.post('/api/getHighlights', async (req, res) => {
     const { title, shownote } = req.body;
@@ -140,6 +129,19 @@ app.post('/api/getHighlights', async (req, res) => {
         return res.json({
             success: false,
             error: '缺少节目简介（shownote），无法生成摘要。',
+        });
+    }
+
+    // 💡 核心修复 2：如果压根没配 Key，直接光速返回兜底文案，不去请求智谱 API
+    if (!ZHIPU_API_KEY) {
+        console.log('[服务器] 检测到未配置 ZHIPU_API_KEY，触发服务降级，直接返回默认金句。');
+        return res.json({
+            success: true,
+            highlights: {
+                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
+                summary: "AI 摘要服务暂未配置，但精彩内容仍在链接中。",
+                tags: ["摘星译", "播客推荐"]
+            }
         });
     }
 
@@ -165,7 +167,7 @@ app.post('/api/getHighlights', async (req, res) => {
         const response = await axios.post(
             apiUrl,
             {
-                model: "GLM-4-Flash-250414", // 指定免费模型
+                model: "GLM-4-Flash-250414", 
                 messages: [
                     { role: "user", content: prompt }
                 ],
@@ -177,16 +179,14 @@ app.post('/api/getHighlights', async (req, res) => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 20000 // 预留 20 秒超时
+                timeout: 20000 
             }
         );
 
-        // 提取智谱 API 返回的文本结果
         const textOutput = response.data?.choices?.[0]?.message?.content || '';
         let parsed;
         
         try {
-            // 鲁棒性处理：剔除模型可能自作主张加上的 markdown json 标签
             let cleanedText = textOutput.trim();
             if (cleanedText.startsWith('```json')) {
                 cleanedText = cleanedText.replace(/^```json\n?/, '').replace(/\n?```$/, '');
@@ -196,9 +196,8 @@ app.post('/api/getHighlights', async (req, res) => {
             parsed = JSON.parse(cleanedText);
         } catch (parseError) {
             console.error('[服务器] JSON 解析失败, 原始输出:', textOutput);
-            // 兜底策略：保证前端有数据可以画海报
             parsed = { 
-                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
+                quote: "这是一段直击灵魂的播客，等待你的倾听。", 
                 summary: "AI 摘要生成遇到了一点小波折，但精彩内容仍在链接中。",
                 tags: ["摘星译", "播客推荐"]
             };
@@ -221,9 +220,14 @@ app.post('/api/getHighlights', async (req, res) => {
             console.error('[服务器] 其他错误:', err.message);
         }
 
+        // 即使请求失败，也当作服务降级处理，保证前端不出错
         return res.json({
-            success: false,
-            error: 'AI 摘要服务调用失败，请稍后再试'
+            success: true,
+            highlights: { 
+                quote: "这是一句直击灵魂的播客金句，等待你的倾听。", 
+                summary: "AI 摘要服务调用超时或失败，但基础提取已完成。",
+                tags: ["摘星译", "播客推荐"]
+            }
         });
     }
 });
