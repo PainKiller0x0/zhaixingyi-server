@@ -1,4 +1,4 @@
-// 这是紧急修复版 server.js (移除了后端的假数据兜底，避免影响线上旧版小程序)
+// 这是 server.js (包含 API 版本控制，完美兼容线上旧版)
 const express = require('express');
 const axios = require('axios');
 const app = express();
@@ -9,7 +9,6 @@ const port = 3000;
 // =========================================================================
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY; 
 
-// 启动前检查，移除报错退出，改为警告提示
 if (!ZHIPU_API_KEY) {
     console.warn('⚠️ 警告：ZHIPU_API_KEY 环境变量未设置！AI 摘要功能将被跳过，但不影响基础的音频提取。');
 }
@@ -120,10 +119,11 @@ app.post('/api/extractM4a', async (req, res) => {
 });
 
 // =========================================================================
-// getHighlights 接口（调用智谱 GLM-4-Flash）
+// getHighlights 接口（调用智谱 GLM-4-Flash-250414，带有版本控制）
 // =========================================================================
 app.post('/api/getHighlights', async (req, res) => {
-    const { title, shownote } = req.body;
+    // 💡 接收前端传来的 version 参数
+    const { title, shownote, version } = req.body;
 
     if (!shownote) {
         return res.json({
@@ -132,7 +132,20 @@ app.post('/api/getHighlights', async (req, res) => {
         });
     }
 
-    // 💡 修复：如果没有配置 Key，诚实地返回失败，不要发假数据干扰线上旧版本！
+    // 💡 核心向后兼容逻辑：如果没有传版本号，说明是线上的旧版小程序！
+    // 直接返回空的金句和摘要，旧版客户端收到后会自动隐藏丑陋的卡片，且不报错。
+    if (!version || version < '0.6.0') {
+        console.log(`[服务器] 拦截到旧版客户端请求 (version: ${version || '未提供'})，已返回空数据隐藏卡片。`);
+        return res.json({
+            success: true,
+            highlights: {
+                quote: "",    // 空字符串会触发旧版前端的 wx:if 隐藏
+                summary: "",
+                tags: []
+            }
+        });
+    }
+
     if (!ZHIPU_API_KEY) {
         console.warn('[服务器] 未配置 ZHIPU_API_KEY，放弃生成亮点。');
         return res.json({
@@ -192,7 +205,6 @@ app.post('/api/getHighlights', async (req, res) => {
             parsed = JSON.parse(cleanedText);
         } catch (parseError) {
             console.error('[服务器] JSON 解析失败, 原始输出:', textOutput);
-            // 💡 修复：如果 AI 乱回答导致解析失败，也诚实地返回失败
             return res.json({
                 success: false,
                 error: 'AI 摘要生成内容异常。'
@@ -206,7 +218,6 @@ app.post('/api/getHighlights', async (req, res) => {
 
     } catch (err) {
         console.error('[服务器] 智谱 API 调用失败!');
-        // 💡 修复：API 调用报错时，诚实地返回失败
         return res.json({
             success: false,
             error: 'AI 摘要服务调用失败，请稍后再试'
@@ -214,9 +225,6 @@ app.post('/api/getHighlights', async (req, res) => {
     }
 });
 
-// =========================================================================
-// submitFeedback（B 方案）
-// =========================================================================
 app.post('/api/submitFeedback', async (req, res) => {
     const { feedbackContent } = req.body;
     console.log('[服务器] 收到匿名反馈:', feedbackContent);
