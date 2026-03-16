@@ -60,6 +60,8 @@ echo.
 echo ====================================
 echo (2/3) 本地操作完成，开始远程部署...
 ====================================
+:: 👇 加上这一行，让它执行前大声喊出自己要去的路径
+echo 【Debug】当前脚本读取到的服务器路径是：%SERVER_PATH%
 :: 核心修改：将远程服务器上的 git pull 命令的远程名从 %REMOTE_NAME% 改回 origin
 ssh %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && git pull origin %REMOTE_BRANCH% && pm2 restart %PM2_APP_NAME%"
 if errorlevel 1 (
